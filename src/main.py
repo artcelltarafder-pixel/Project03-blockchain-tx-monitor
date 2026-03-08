@@ -1,4 +1,4 @@
-"""Main entrypoint — Phase 4: DB writes to TimescaleDB."""
+"""Main entrypoint — Phase 5: Rich terminal dashboard."""
 
 from __future__ import annotations
 
@@ -13,30 +13,20 @@ from src.filters.filter_chain import FilterChain
 from src.analysis.anomaly import VolumeAnomalyDetector, GasAnomalyDetector
 from src.analysis.recirculation import RecirculationDetector, Transfer
 from src.storage.db import Database, TransactionRecord, BlockRecord, AnomalyRecord
+from src.dashboard.dashboard import Dashboard
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 TX_COUNT = 0
-BLOCK_COUNT = 0
 price_feed: PriceFeed | None = None
 db: Database | None = None
+dashboard = Dashboard()
 filter_chain = FilterChain(medium_eth=0.5, large_eth=10.0, whale_eth=100.0)
 volume_detector = VolumeAnomalyDetector()
 gas_detector = GasAnomalyDetector()
 recirc_detector = RecirculationDetector(min_value_eth=1.0)
-
-LEVEL_COLOURS = {
-    "critical":  "\033[91m",
-    "gas_spike": "\033[38;5;208m",
-    "warning":   "\033[93m",
-    "info":      "\033[96m",
-    "none":      "\033[0m",
-}
-ANOMALY = "\033[95m"
-RECIRC  = "\033[91m"
-RESET   = "\033[0m"
 
 
 def on_transaction(tx: RawTransaction) -> None:
@@ -47,7 +37,29 @@ def on_transaction(tx: RawTransaction) -> None:
     if not result:
         return
 
-    # ── Write to DB ───────────────────────────────────────────────────────
+    # Update price in dashboard
+    if price_feed and price_feed.eth_usd:
+        dashboard.update_price(price_feed.eth_usd)
+
+    usd = price_feed.eth_to_usd(result.value.value_eth) if price_feed else "n/a"
+    gas_usd = price_feed.eth_to_usd(result.gas.gas_cost_eth) if price_feed else "n/a"
+
+    # Send to dashboard
+    dashboard.add_transaction({
+        "hash": tx.tx_hash,
+        "eth": result.value.value_eth,
+        "usd": usd,
+        "fee_eth": result.gas.gas_cost_eth,
+        "gwei": result.gas.gas_price_gwei,
+        "from": tx.from_address,
+        "tags": " ".join(f"[{t}]" for t in result.tags),
+        "level": result.alert_level,
+    })
+
+    if result.gas.gas_price_gwei > 0:
+        dashboard.update_gas(result.gas.gas_price_gwei)
+
+    # ── DB write ──────────────────────────────────────────────────────────
     if db:
         asyncio.create_task(db.insert_transaction(TransactionRecord(
             chain="ethereum",
@@ -65,16 +77,14 @@ def on_transaction(tx: RawTransaction) -> None:
     # ── Volume anomaly ────────────────────────────────────────────────────
     vol_anomaly = volume_detector.record()
     if vol_anomaly.is_anomaly:
-        print(
-            f"{ANOMALY}[⚠ ANOMALY] {vol_anomaly.anomaly_type} | "
-            f"severity={vol_anomaly.severity.upper()} | "
-            f"{vol_anomaly.description} | "
-            f"x{vol_anomaly.spike_multiplier:.1f} baseline{RESET}"
+        dashboard.add_anomaly(
+            vol_anomaly.anomaly_type or "VOLUME_SPIKE",
+            f"{vol_anomaly.description} | x{vol_anomaly.spike_multiplier:.1f}",
         )
         if db:
             asyncio.create_task(db.insert_anomaly(AnomalyRecord(
                 chain="ethereum",
-                anomaly_type=vol_anomaly.anomaly_type or "UNKNOWN",
+                anomaly_type=vol_anomaly.anomaly_type or "VOLUME_SPIKE",
                 severity=vol_anomaly.severity,
                 description=vol_anomaly.description,
             )))
@@ -82,18 +92,10 @@ def on_transaction(tx: RawTransaction) -> None:
     # ── Gas anomaly ───────────────────────────────────────────────────────
     gas_anomaly = gas_detector.record(result.gas.gas_price_gwei)
     if gas_anomaly.is_anomaly:
-        print(
-            f"{ANOMALY}[⚠ ANOMALY] {gas_anomaly.anomaly_type} | "
-            f"severity={gas_anomaly.severity.upper()} | "
-            f"{gas_anomaly.description}{RESET}"
+        dashboard.add_anomaly(
+            gas_anomaly.anomaly_type or "HIGH_GAS",
+            gas_anomaly.description,
         )
-        if db:
-            asyncio.create_task(db.insert_anomaly(AnomalyRecord(
-                chain="ethereum",
-                anomaly_type=gas_anomaly.anomaly_type or "UNKNOWN",
-                severity=gas_anomaly.severity,
-                description=gas_anomaly.description,
-            )))
 
     # ── Recirculation ─────────────────────────────────────────────────────
     if result.value.value_eth >= 1.0 and tx.from_address and tx.to_address:
@@ -105,15 +107,8 @@ def on_transaction(tx: RawTransaction) -> None:
         )
         recirc = recirc_detector.record(transfer)
         if recirc:
-            usd = price_feed.eth_to_usd(recirc.total_value_eth) if price_feed else "n/a"
-            path_str = " → ".join(f"{a[:8]}…" for a in recirc.path)
-            print(
-                f"{RECIRC}[🔄 RECIRCULATION DETECTED] "
-                f"{recirc.hop_count} hops | "
-                f"{recirc.total_value_eth:.2f} ETH ({usd}) | "
-                f"span {recirc.time_span_seconds:.0f}s | "
-                f"path: {path_str}{RESET}"
-            )
+            usd_r = price_feed.eth_to_usd(recirc.total_value_eth) if price_feed else "n/a"
+            dashboard.add_recirculation(recirc.hop_count, recirc.total_value_eth, usd_r)
             if db:
                 asyncio.create_task(db.insert_anomaly(AnomalyRecord(
                     chain="ethereum",
@@ -124,31 +119,9 @@ def on_transaction(tx: RawTransaction) -> None:
                     metadata={"path": recirc.path, "tx_hashes": recirc.tx_hashes},
                 )))
 
-    # ── Display ───────────────────────────────────────────────────────────
-    if result.alert_level == "none":
-        return
-
-    usd = price_feed.eth_to_usd(result.value.value_eth) if price_feed else "n/a"
-    gas_usd = price_feed.eth_to_usd(result.gas.gas_cost_eth) if price_feed else "n/a"
-    colour = LEVEL_COLOURS.get(result.alert_level, RESET)
-    tags = " ".join(f"[{t}]" for t in result.tags) if result.tags else ""
-    wallet = str(result.from_address)[:14] if result.from_address else "unknown"
-
-    print(
-        f"{colour}"
-        f"[TX #{TX_COUNT:>4}] {result.tx_hash[:12]}… | "
-        f"{result.value.value_eth:>10.4f} ETH ({usd:>14}) | "
-        f"fee {result.gas.gas_cost_eth:.6f} ETH ({gas_usd}) | "
-        f"{result.gas.gas_price_gwei:.1f} gwei | "
-        f"from {wallet}… | "
-        f"{tags}"
-        f"{RESET}"
-    )
-
 
 def on_block(block: RawBlock) -> None:
-    global BLOCK_COUNT
-    BLOCK_COUNT += 1
+    dashboard.update_block(block.block_number, block.gas_used)
     if db:
         asyncio.create_task(db.insert_block(BlockRecord(
             chain="ethereum",
@@ -160,11 +133,6 @@ def on_block(block: RawBlock) -> None:
             base_fee_wei=int(block.base_fee_hex, 16) if block.base_fee_hex else None,
             miner=block.miner,
         )))
-    print(
-        f"\n\033[90m[BLOCK #{block.block_number:,}] "
-        f"gas used {block.gas_used:>12,} | "
-        f"miner {block.miner[:12]}…\033[0m\n"
-    )
 
 
 async def main() -> None:
@@ -177,22 +145,13 @@ async def main() -> None:
     if not ws_url:
         raise ValueError("ALCHEMY_WS_URL not set in .env")
 
-    # ── Database ──────────────────────────────────────────────────────────
     if db_url:
         db = Database(dsn=db_url)
         await db.connect()
-        schema_path = os.path.join(os.path.dirname(__file__), "storage", "schema.sql")
-        logger.info("TimescaleDB connected")
-    else:
-        logger.warning("DATABASE_URL not set — running without DB persistence")
 
-    # ── Price feed ────────────────────────────────────────────────────────
     if cmc_key:
         price_feed = PriceFeed(api_key=cmc_key)
         await price_feed.start()
-
-    logger.info("🔴 Whale  🟠 Gas Spike  🟡 Large TX  🔵 Medium/Contract  🟣 Anomaly  🔴 Recirculation")
-    logger.info("Connecting to Alchemy — Ethereum Mainnet\n")
 
     client = AlchemyWebSocket(
         ws_url=ws_url,
@@ -200,15 +159,15 @@ async def main() -> None:
         on_block=on_block,
     )
 
-    try:
-        await client.start()
-    except KeyboardInterrupt:
-        await client.stop()
-        if price_feed:
-            await price_feed.stop()
-        if db:
-            await db.close()
-        logger.info("Stopped. TX seen: %d | Blocks: %d", TX_COUNT, BLOCK_COUNT)
+    with dashboard.start():
+        try:
+            await client.start()
+        except KeyboardInterrupt:
+            await client.stop()
+            if price_feed:
+                await price_feed.stop()
+            if db:
+                await db.close()
 
 
 if __name__ == "__main__":
