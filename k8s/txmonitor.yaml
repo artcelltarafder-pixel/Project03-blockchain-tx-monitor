@@ -1,4 +1,3 @@
-# ── Deployment ───────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,7 +21,8 @@ spec:
     spec:
       containers:
         - name: txmonitor
-          image: ghcr.io/apu-saha-990/txmonitor:latest
+          image: txmonitor:latest
+          imagePullPolicy: Never
           env:
             - name: ALCHEMY_WS_URL
               valueFrom:
@@ -54,9 +54,7 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "500m"
-          restartPolicy: Always
 ---
-# ── Service ──────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
