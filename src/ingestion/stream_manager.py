@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
 from src.ingestion.alchemy_ws import AlchemyWebSocket, RawBlock, RawTransaction
