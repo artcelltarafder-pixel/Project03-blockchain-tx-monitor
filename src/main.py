@@ -5,28 +5,37 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.text import Text
 
-from src.ingestion.alchemy_ws import AlchemyWebSocket, RawTransaction, RawBlock
-from src.ingestion.price_feed import PriceFeed
-from src.filters.filter_chain import FilterChain
-from src.analysis.anomaly import VolumeAnomalyDetector, GasAnomalyDetector
+from src.analysis.anomaly import GasAnomalyDetector, VolumeAnomalyDetector
 from src.analysis.recirculation import RecirculationDetector, Transfer
-from src.storage.db import Database, TransactionRecord, BlockRecord, AnomalyRecord
 from src.dashboard.dashboard import Dashboard
+from src.filters.filter_chain import FilterChain
+from src.ingestion.alchemy_ws import AlchemyWebSocket, RawBlock, RawTransaction
+from src.ingestion.price_feed import PriceFeed
 from src.metrics.metrics import (
+    ANOMALY_TOTAL,
+    AVG_GAS_GWEI,
+    BLOCK_TOTAL,
+    ETH_PRICE,
+    GAS_PRICE_GWEI,
+    LARGE_TOTAL,
+    LATEST_BLOCK,
+    PRIVATE_TOTAL,
+    RECIRC_TOTAL,
+    TX_FILTERED,
+    TX_PER_SECOND,
+    TX_TOTAL,
+    TX_VALUE_ETH,
+    WHALE_TOTAL,
     start_metrics_server,
-    TX_TOTAL, TX_FILTERED, WHALE_TOTAL, LARGE_TOTAL, PRIVATE_TOTAL,
-    ANOMALY_TOTAL, RECIRC_TOTAL, BLOCK_TOTAL,
-    ETH_PRICE, TX_PER_SECOND, AVG_GAS_GWEI, LATEST_BLOCK,
-    TX_VALUE_ETH, GAS_PRICE_GWEI,
 )
+from src.storage.db import AnomalyRecord, BlockRecord, Database, TransactionRecord
 
 load_dotenv()
 logging.basicConfig(level=logging.WARNING)
@@ -58,7 +67,7 @@ def raw_print_tx(tx: RawTransaction, result) -> None:
     style, icon = LEVEL_STYLES.get(result.alert_level, ("dim", "  "))
     usd = price_feed.eth_to_usd(result.value.value_eth) if price_feed else "n/a"
     tags = " ".join(f"[{t}]" for t in result.tags)
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%H:%M:%S")
 
     text = Text()
     text.append(f"{ts} ", style="dim")
@@ -72,19 +81,19 @@ def raw_print_tx(tx: RawTransaction, result) -> None:
 
 
 def raw_print_anomaly(anomaly_type: str, description: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%H:%M:%S")
     console.print(f"[bold magenta]{ts}  ⚠  {anomaly_type}  {description}[/bold magenta]")
 
 
 def raw_print_recirc(hops: int, value_eth: float, usd: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%H:%M:%S")
     console.print(
         f"[bold red]{ts}  🔄 RECIRCULATION  {hops} hops  {value_eth:.2f} ETH  {usd}[/bold red]"
     )
 
 
 def raw_print_block(block_number: int) -> None:
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(UTC).strftime("%H:%M:%S")
     console.print(f"[dim]{ts}  ⛓  Block #{block_number:,}[/dim]")
 
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.ingestion.alchemy_ws import RawTransaction
-from src.filters.value_filter import ValueFilter, ValueFilterResult
-from src.filters.gas_filter import GasFilter, GasFilterResult
 from src.filters.contract_filter import ContractFilter, ContractFilterResult
+from src.filters.gas_filter import GasFilter, GasFilterResult
+from src.filters.value_filter import ValueFilter, ValueFilterResult
+from src.ingestion.alchemy_ws import RawTransaction
 
 
 @dataclass

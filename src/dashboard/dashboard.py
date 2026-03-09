@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
+from rich import box
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
-
 
 # ── Data store ────────────────────────────────────────────────────────────────
 
@@ -61,11 +58,11 @@ class DashboardState:
 # ── Layout builders ───────────────────────────────────────────────────────────
 
 def build_header(state: DashboardState) -> Panel:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     text = Text()
     text.append("⛓  BLOCKCHAIN TX MONITOR", style="bold cyan")
     text.append("   │   ", style="dim")
-    text.append(f"BLOCK ", style="dim")
+    text.append("BLOCK ", style="dim")
     text.append(f"#{state.latest_block:,}", style="bold white")
     text.append("   │   ", style="dim")
     text.append("ETH ", style="dim")
@@ -230,7 +227,7 @@ class Dashboard:
                 self.state.add_event({
                     "type": "🐋 WHALE TX",
                     "detail": f"{tx_data.get('eth', 0):.2f} ETH ({tx_data.get('usd', 'n/a')})",
-                    "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                    "time": datetime.now(UTC).strftime("%H:%M:%S"),
                 })
             if "LARGE_TX" in tags:
                 self.state.large_count += 1
@@ -243,7 +240,7 @@ class Dashboard:
         self.state.add_event({
             "type": f"⚠ {anomaly_type}",
             "detail": description,
-            "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "time": datetime.now(UTC).strftime("%H:%M:%S"),
         })
         self.update()
 
@@ -252,7 +249,7 @@ class Dashboard:
         self.state.add_event({
             "type": "🔄 RECIRCULATION",
             "detail": f"{hops} hops | {value_eth:.2f} ETH ({usd})",
-            "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+            "time": datetime.now(UTC).strftime("%H:%M:%S"),
         })
         self.update()
 

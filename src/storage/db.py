@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Sequence
+from datetime import UTC, datetime
+from typing import Any
 
 import asyncpg
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class TransactionRecord:
     chain: str
     tx_hash: str
-    ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    ts: datetime = field(default_factory=lambda: datetime.now(UTC))
     block_number: int | None = None
     from_address: str | None = None
     to_address: str | None = None
@@ -37,7 +38,7 @@ class BlockRecord:
     chain: str
     block_number: int
     block_hash: str
-    ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    ts: datetime = field(default_factory=lambda: datetime.now(UTC))
     parent_hash: str | None = None
     tx_count: int | None = None
     gas_used: int | None = None
@@ -51,7 +52,7 @@ class AnomalyRecord:
     chain: str
     anomaly_type: str
     severity: str
-    ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    ts: datetime = field(default_factory=lambda: datetime.now(UTC))
     description: str | None = None
     tx_hash: str | None = None
     from_address: str | None = None
